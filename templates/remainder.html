@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Remainder Dashboard</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='modern.css') }}">
+</head>
+<body>
+    <div class="sidebar">
+        <ul>
+            <li onclick="window.location.href='{{ url_for('dashboard') }}'">Home</li>
+            <li onclick="window.location.href='{{ url_for('subject_history_page') }}'">History</li>
+            <li onclick="window.location.href='{{ url_for('important') }}'">Important</li>
+        </ul>
+    </div>
+    <div class="container">
+        <h2>Upload and Manage Files</h2>
+        <div class="upload-section">
+            <form id="uploadForm" enctype="multipart/form-data">
+                <input type="file" id="fileInput" name="files" multiple required>
+                <button type="submit" class="upload-btn">Upload</button>
+            </form>
+        </div>
+        <h3>Uploaded Files</h3>
+        <ul id="fileList"></ul>
+    </div>
+    <script>
+        document.addEventListener("DOMContentLoaded", function() {
+            loadFiles();
+            document.getElementById("uploadForm").addEventListener("submit", function(e) {
+                e.preventDefault();
+                let files = document.getElementById("fileInput").files;
+                if (!files.length) { alert("Select at least one file!"); return; }
+                let formData = new FormData();
+                for (let i = 0; i < files.length; i++) formData.append("files", files[i]);
+                fetch("/upload", { method: "POST", body: formData })
+                    .then(res => res.json())
+                    .then(() => { loadFiles(); document.getElementById("fileInput").value = ""; });
+            });
+        });
+        function loadFiles() {
+            fetch("/files").then(res => res.json()).then(files => {
+                let fileList = document.getElementById("fileList");
+                fileList.innerHTML = "";
+                files.forEach(filename => {
+                    let li = document.createElement("li");
+                    let fileName = document.createElement("span");
+                    fileName.textContent = filename;
+                    let actionsDiv = document.createElement("div");
+                    actionsDiv.classList.add("file-actions");
+                    let openBtn = document.createElement("button");
+                    openBtn.textContent = "Open";
+                    openBtn.classList.add("open-btn");
+                    openBtn.onclick = () => window.open(`/uploads/${filename}`, '_blank');
+                    let renameBtn = document.createElement("button");
+                    renameBtn.textContent = "Rename";
+                    renameBtn.classList.add("rename-btn");
+                    renameBtn.onclick = () => renameFile(filename);
+                    let deleteBtn = document.createElement("button");
+                    deleteBtn.textContent = "Delete";
+                    deleteBtn.classList.add("delete-btn");
+                    deleteBtn.onclick = () => deleteFile(filename);
+                    actionsDiv.appendChild(openBtn);
+                    actionsDiv.appendChild(renameBtn);
+                    actionsDiv.appendChild(deleteBtn);
+                    li.appendChild(fileName);
+                    li.appendChild(actionsDiv);
+                    fileList.appendChild(li);
+                });
+            });
+        }
+        function renameFile(oldName) {
+            let newName = prompt("Enter new file name:", oldName);
+            if (!newName || newName === oldName) return;
+            fetch(`/rename/${oldName}`, {
+                method: "PUT",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ new_name: newName })
+            }).then(() => loadFiles());
+        }
+        function deleteFile(filename) {
+            if (!confirm("Delete this file?")) return;
+            fetch(`/delete/${filename}`, { method: "DELETE" }).then(() => loadFiles());
+        }
+    </script>
+</body>
+</html>

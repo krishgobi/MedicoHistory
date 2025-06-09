@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Subject History Details</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='modern.css') }}">
+</head>
+<body>
+
+    <div class="container">
+        <h1>Subject History Details</h1>
+
+        {% if subjects %}
+            <ul>
+                {% for entry in subjects %}
+                    <li>
+                        <p><strong>Subject Name:</strong> {{ entry.namesub }}</p>
+                        <p><strong>Posting Name:</strong> {{ entry.posting_name }}</p>
+                        <p><strong>Patient Name:</strong> {{ entry.patient_name }}</p>
+                        <p><strong>Disease Details:</strong> {{ entry.disease_detail }}</p>
+                        <p><strong>Remarks:</strong> {{ entry.remarks }}</p>
+                        <p><strong>Date:</strong> {{ entry.date }}</p>
+                        <p><strong>Duration:</strong> {{ entry.duration_date }}</p>
+                        <p><strong>Remainder Date:</strong> {{ entry.remainder_date }}</p>
+                        <p><strong>Remainder Time:</strong> {{ entry.remainder_time }}</p>
+
+                        {% if entry.extra_fields %}
+                            <div class="extra-fields">
+                                <strong>Extra Fields:</strong>
+                                <p>{{ entry.extra_fields }}</p>
+                            </div>
+                        {% endif %}
+                        
+                        <a href="{{ url_for('download_single_history_pdf', history_id=entry.id) }}" class="btn-download-pdf">Download This History as PDF</a>
+                    </li>
+                {% endfor %}
+            </ul>
+        {% else %}
+            <p class="no-history-message">No history records found for this subject.</p>
+        {% endif %}
+    </div>
+
+</body>
+</html>
