@@ -2,6 +2,7 @@ from flask import Flask, render_template, redirect, url_for, request, session, j
 from flask_sqlalchemy import SQLAlchemy
 from flask_bcrypt import Bcrypt
 from datetime import datetime
+import requests
 
 # Initialize Flask App
 app = Flask(__name__)
@@ -63,6 +64,14 @@ class SubjectHistory(db.Model):
     remainder_date = db.Column(db.Date, nullable=False)
     remainder_time = db.Column(db.Time, nullable=False)
     extra_fields = db.Column(db.JSON, nullable=True)  # Extra Fields (JSON)
+
+# --- File Metadata Model for Permanent Storage ---
+class FileMeta(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    filename = db.Column(db.String(255), nullable=False)
+    subject = db.Column(db.String(100), nullable=True)
+    upload_time = db.Column(db.DateTime, default=datetime.utcnow)
+    deleted = db.Column(db.Boolean, default=False)
 
 # ------------------------- DATABASE INITIALIZATION -------------------------
 with app.app_context():
@@ -216,8 +225,8 @@ def subject_history_page():
 @app.route('/remainder_dashboard_page')
 def remainder_dashboard():
     return render_template('remainder.html')
-@app.route('/important')
-def important():
+@app.route('/importants')
+def importants():
     return render_template('important.html')
 @app.route('/view_subject_details/<subject_name>')
 def view_subject_details(subject_name):
@@ -462,39 +471,86 @@ def rename_card():
             return jsonify({"success": True})
     return jsonify({"success": False, "error": "Card not found"})
 
-@app.route("/upload", methods=["POST"])
-def upload_file():
-    if "files" not in request.files:
-        return jsonify({"error": "No file part"}), 400
-    
-    files = request.files.getlist("files")
-    saved_files = []
+# --- API: List all files (active and deleted) ---
+@app.route("/api/files", methods=["GET"])
+def api_list_files():
+    files = FileMeta.query.all()
+    return jsonify([
+        {
+            "filename": f.filename,
+            "subject": f.subject,
+            "upload_time": f.upload_time.strftime('%Y-%m-%d %H:%M:%S'),
+            "deleted": f.deleted
+        } for f in files
+    ])
 
-    for file in files:
-        filename = file.filename
-        file_path = os.path.join(UPLOAD_FOLDER, filename)
-        file.save(file_path)
-        saved_files.append({"name": filename})
+# --- API: Upload file ---
+@app.route("/api/upload", methods=["POST"])
+def api_upload_file():
+    file = request.files.get("file")
+    subject = request.form.get("subject")
+    if not file or file.filename == "":
+        return jsonify({"error": "No file provided"}), 400
+    filename = file.filename
+    save_path = os.path.join(app.config["UPLOAD_FOLDER"], filename)
+    file.save(save_path)
+    meta = FileMeta(filename=filename, subject=subject)
+    db.session.add(meta)
+    db.session.commit()
+    return jsonify({"success": True, "filename": filename})
 
-    return jsonify({"message": "Files uploaded successfully", "files": saved_files})
+# --- API: Delete (move to recycle bin) ---
+@app.route("/api/delete/<filename>", methods=["POST"])
+def api_delete_file(filename):
+    meta = FileMeta.query.filter_by(filename=filename, deleted=False).first()
+    if not meta:
+        return jsonify({"error": "File not found"}), 404
+    meta.deleted = True
+    db.session.commit()
+    return jsonify({"success": True})
 
-@app.route("/viewsss/<card_id>", methods=["GET", "POST"])
-def view_files(card_id):
-    if request.method == "POST":
-        files = request.json.get("files", [])
-        return jsonify({"status": "success"})
-
-    file_list = os.listdir(UPLOAD_FOLDER)
-    files = [{"name": file, "type": "File"} for file in file_list]
-    return render_template("views.html",  card_id=card_id,files=files)
+# --- API: Restore from recycle bin ---
+@app.route("/api/restore/<filename>", methods=["POST"])
+def api_restore_file(filename):
+    meta = FileMeta.query.filter_by(filename=filename, deleted=True).first()
+    if not meta:
+        return jsonify({"error": "File not found in recycle bin"}), 404
+    meta.deleted = False
+    db.session.commit()
+    return jsonify({"success": True})
 
 @app.route("/uplo/<filename>")
 def download_file(filename):
-    return send_from_directory(UPLOAD_FOLDER, filename, as_attachment=False)
+    return send_from_directory(UPLOAD_FOLDER, filename, as_attachment=True)
 
 @app.route('/documents')
 def documents():
     return render_template('documents.html')
+
+@app.route('/recycle_bin')
+def recycle_bin():
+    return render_template('recycle_bin.html')
+
+# --- Gemini Chatbot API ---
+GEMINI_API_KEY = "AIzaSyABcdZqp5FYzjKqQYEJc234YDbd123Uxa8"
+GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=" + GEMINI_API_KEY
+
+@app.route('/chatbot-gemini', methods=['POST'])
+def chatbot_gemini():
+    data = request.json
+    user_message = data.get('message', '')
+    project_context = data.get('context', '')
+    prompt = f"User: {user_message}\nProject Data: {project_context}\nAssistant:"
+    payload = {
+        "contents": [{"parts": [{"text": prompt}]}]
+    }
+    try:
+        resp = requests.post(GEMINI_API_URL, json=payload)
+        resp.raise_for_status()
+        gemini_reply = resp.json()['candidates'][0]['content']['parts'][0]['text']
+        return jsonify({"reply": gemini_reply})
+    except Exception as e:
+        return jsonify({"reply": "Sorry, I couldn't reach Gemini API. (" + str(e) + ")"}), 500
 
 if __name__ == '__main__':
     app.run(debug=True)

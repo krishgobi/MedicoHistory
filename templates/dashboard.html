@@ -5,6 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Dashboard</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='modern.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='modern_global.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='chatbot.css') }}">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
 
@@ -166,16 +168,119 @@
             from { opacity: 0; }
             to { opacity: 1; }
         }
+
+        /* Chatbot Widget */
+        #chatbot-toggle {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background: #4c1d95;
+            color: white;
+            border: none;
+            border-radius: 50%;
+            width: 60px;
+            height: 60px;
+            font-size: 24px;
+            cursor: pointer;
+            box-shadow: 0px 4px 8px rgba(0, 0, 0, 0.2);
+            transition: background 0.3s ease;
+            z-index: 1001;
+        }
+
+        #chatbot-toggle:hover {
+            background: #6c38b5;
+        }
+
+        #chatbot-widget {
+            display: none;
+            position: fixed;
+            bottom: 80px;
+            right: 20px;
+            background: white;
+            border-radius: 12px;
+            width: 350px;
+            max-width: 90vw;
+            box-shadow: 0px 4px 16px rgba(0, 0, 0, 0.2);
+            flex-direction: column;
+            z-index: 1001;
+        }
+
+        #chatbot-header {
+            background: #4c1d95;
+            color: white;
+            padding: 10px 15px;
+            border-top-left-radius: 12px;
+            border-top-right-radius: 12px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        #chatbot-messages {
+            padding: 10px 15px;
+            flex: 1;
+            overflow-y: auto;
+            max-height: 300px;
+        }
+
+        .chatbot-message {
+            margin-bottom: 10px;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .chatbot-message.user .bubble {
+            background: #dcf8c6;
+            align-self: flex-end;
+        }
+
+        .chatbot-message.bot .bubble {
+            background: #f1f0f0;
+            align-self: flex-start;
+        }
+
+        .bubble {
+            padding: 10px 15px;
+            border-radius: 10px;
+            max-width: 80%;
+            word-wrap: break-word;
+        }
+
+        #chatbot-input-row {
+            display: flex;
+            padding: 10px 15px;
+            border-top: 1px solid #ddd;
+        }
+
+        #chatbot-input {
+            flex: 1;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 10px;
+            font-size: 16px;
+        }
+
+        #chatbot-send {
+            background: #4c1d95;
+            color: white;
+            border: none;
+            border-radius: 10px;
+            padding: 10px 15px;
+            cursor: pointer;
+            font-size: 16px;
+            margin-left: 10px;
+        }
+
+        #chatbot-send:hover {
+            background: #6c38b5;
+        }
     </style>
 </head>
 <body>
 
     <!-- Sidebar with Vertical Grid Navigation -->
     <div class="sidebar">
-        <div class="nav-item" onclick="window.location.href='{{url_for('index')}}'">
-            <span>🏠</span> Home
-        </div>
-        
+       
         <div class="nav-item" onclick="window.location.href='{{url_for('view_subject')}}'">
             <span>📚</span> Subjects
         </div>
@@ -184,8 +289,8 @@
             <span>📂</span> Files
         </div>
 
-        <div class="nav-item" onclick="window.location.href='{{ url_for('documents') }}'">
-            <span>📄</span> Documents
+        <div class="nav-item" onclick="window.location.href='{{url_for('importants')}}'">
+            <span>📂</span> Documents
         </div>
     </div>
 
@@ -226,6 +331,20 @@
     <!-- Notification -->
     <div class="notification" id="notification"></div>
 
+    <!-- Chatbot Widget -->
+    <button id="chatbot-toggle" title="Ask our Smart Assistant!">💬</button>
+    <div id="chatbot-widget">
+      <div id="chatbot-header">
+        Smart Assistant
+        <button id="chatbot-close">&times;</button>
+      </div>
+      <div id="chatbot-messages"></div>
+      <div id="chatbot-input-row">
+        <input id="chatbot-input" type="text" placeholder="Ask me anything..." autocomplete="off" />
+        <button id="chatbot-send">➤</button>
+      </div>
+    </div>
+
     <script>
         // Show notification
         function showNotification(message) {
@@ -265,6 +384,62 @@
         // Prevent form from closing when clicking inside it
         document.getElementById('subjectForm').addEventListener('click', function(e) {
             e.stopPropagation();
+        });
+
+        // --- Chatbot Logic (Gemini API) ---
+        const chatbotToggle = document.getElementById('chatbot-toggle');
+        const chatbotWidget = document.getElementById('chatbot-widget');
+        const chatbotClose = document.getElementById('chatbot-close');
+        const chatbotMessages = document.getElementById('chatbot-messages');
+        const chatbotInput = document.getElementById('chatbot-input');
+        const chatbotSend = document.getElementById('chatbot-send');
+
+        chatbotToggle.onclick = () => chatbotWidget.style.display = 'flex';
+        chatbotClose.onclick = () => chatbotWidget.style.display = 'none';
+
+        function addChatMessage(text, sender) {
+          const msg = document.createElement('div');
+          msg.className = 'chatbot-message ' + sender;
+          msg.innerHTML = `<div class="bubble">${text}</div>`;
+          chatbotMessages.appendChild(msg);
+          chatbotMessages.scrollTop = chatbotMessages.scrollHeight;
+        }
+
+        async function botReplyGemini(userMsg) {
+          // Gather project data from localStorage
+          let subjects = [];
+          let filesData = {};
+          try {
+            subjects = JSON.parse(localStorage.getItem('importantSubjects')) || [];
+            filesData = JSON.parse(localStorage.getItem('importantFilesData')) || {};
+          } catch {}
+          let context = JSON.stringify({subjects, filesData});
+          addChatMessage('<span style="color:#888">Thinking...</span>', 'bot');
+          try {
+            const res = await fetch('/chatbot-gemini', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ message: userMsg, context })
+            });
+            const data = await res.json();
+            chatbotMessages.lastChild.remove(); // Remove 'Thinking...'
+            addChatMessage(data.reply, 'bot');
+          } catch (e) {
+            chatbotMessages.lastChild.remove();
+            addChatMessage("Sorry, I couldn't reach the AI backend.", 'bot');
+          }
+        }
+
+        function handleUserInput() {
+          const val = chatbotInput.value.trim();
+          if (!val) return;
+          addChatMessage(val, 'user');
+          chatbotInput.value = '';
+          setTimeout(() => botReplyGemini(val), 400);
+        }
+        chatbotSend.onclick = handleUserInput;
+        chatbotInput.addEventListener('keydown', function(e) {
+          if (e.key === 'Enter') handleUserInput();
         });
     </script>
 </body>

@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Subject History Details</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='modern_global.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='modern.css') }}">
 </head>
 <body>
@@ -31,8 +32,6 @@
                                 <p>{{ entry.extra_fields }}</p>
                             </div>
                         {% endif %}
-                        
-                        <a href="{{ url_for('download_single_history_pdf', history_id=entry.id) }}" class="btn-download-pdf">Download This History as PDF</a>
                     </li>
                 {% endfor %}
             </ul>
